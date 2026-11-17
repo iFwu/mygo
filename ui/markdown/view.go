@@ -95,6 +95,14 @@ type Options struct {
 	// alone. It runs as the view builds, so it shows what the app has at
 	// hand, fetching the rest in the background.
 	Preview func(c *ui.Context, dest string) func(tip ui.Element)
+	// LinkHover, when set, is asked as the view builds each link to dest,
+	// a mention's or a reference's included, with the link, for a card
+	// of the app's own that the pointer can move onto, where Preview's
+	// tip lets it through and goes as it leaves the link: the app reads
+	// the link's Hovered and anchors the card on it, with PopoverBase.
+	// When it returns true, the link shows no tip, Preview's or its
+	// address.
+	LinkHover func(c *ui.Context, dest string, link ui.Element) bool
 	// LoadImage loads the image at url, on a goroutine of its own, for the
 	// views to show; until it has, they show its description. Without
 	// it, images show as their descriptions. FileImages loads files.
@@ -743,6 +751,12 @@ func (st *viewState) link(c *ui.Context, in *parser.Inline, children func()) {
 	tip := in.Title
 	if tip == "" && !in.Auto && !in.Pending && dest != "" && !strings.HasPrefix(dest, "#") {
 		tip = dest
+	}
+	if st.o.LinkHover != nil && !in.Pending && dest != "" && st.o.LinkHover(c, dest, l) {
+		if tip != "" {
+			l.Description(tip)
+		}
+		return
 	}
 	if st.o.Preview != nil && !in.Pending && dest != "" {
 		if fill := st.o.Preview(c, dest); fill != nil {
