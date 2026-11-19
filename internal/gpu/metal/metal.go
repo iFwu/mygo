@@ -461,7 +461,7 @@ type Renderer struct {
 	pending       pendingFrame
 	// post runs a function on the main thread (SetPost), fetched has the
 	// presenter's thread draw pending through it, and wake is what Ready
-	// was given while a frame was pending.
+	// was given while a frame or asynchronous drawable fetch was pending.
 	post    func(func())
 	fetched func()
 	wake    func()
@@ -1715,11 +1715,11 @@ func hasHoles(s *scene.Scene) bool {
 	return false
 }
 
-// Ready reports whether a frame following the last one can draw at once,
-// as none waits for its drawable (present.go); otherwise wake runs, on the
-// main thread, once it has.
+// Ready reports whether a frame can build without waiting for a pending
+// frame or an asynchronous drawable fetch (present.go); otherwise wake
+// runs on the main thread after the pending presentation or fetch.
 func (r *Renderer) Ready(wake func()) bool {
-	if r.pending.cb == 0 {
+	if r.pending.cb == 0 && (pacing.Uncapped || r.fetched == nil || r.pre.ready(r.fetched)) {
 		return true
 	}
 	r.wake = wake

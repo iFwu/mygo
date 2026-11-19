@@ -5,6 +5,7 @@ package metal
 import (
 	"testing"
 
+	"github.com/egoist/mygo/internal/pacing"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/wait"
 )
@@ -60,6 +61,54 @@ func TestPresenter(t *testing.T) {
 	p.drain()
 	if fetched != 3 || p.drawable != 0 || p.fetching {
 		t.Fatalf("drained after %d fetches: drawable %#x, fetching %v", fetched, p.drawable, p.fetching)
+	}
+}
+
+func TestReadyWaitsForPrefetch(t *testing.T) {
+	if err := load(); err != nil {
+		t.Skip("no Objective-C runtime:", err)
+	}
+	uncapped := pacing.Uncapped
+	pacing.Uncapped = false
+	defer func() { pacing.Uncapped = uncapped }()
+	gate := make(chan struct{})
+	next := nextDrawable
+	nextDrawable = func(id) id {
+		<-gate
+		return send(send(class("NSObject"), "new"), "autorelease")
+	}
+	r := &Renderer{}
+	defer func() {
+		close(gate)
+		r.pre.stop()
+		nextDrawable = next
+	}()
+	posted := make(chan func(), 1)
+	r.SetPost(func(fn func()) { posted <- fn })
+	r.pre.start(0)
+	wakes := 0
+	if r.Ready(func() { wakes++ }) || r.pending.cb != 0 {
+		t.Fatal("ready during a fetch with no pending frame")
+	}
+	if wakes != 0 {
+		t.Fatal("woke before fetching finished")
+	}
+	gate <- struct{}{}
+	finish := wait.For(t, "the drawable-ready post", posted)
+	if wakes != 0 {
+		t.Fatal("wake ran outside the posted main-thread callback")
+	}
+	finish()
+	finish() // a stale post must not repeat the wake
+	if wakes != 1 || !r.Ready(nil) {
+		t.Fatalf("after fetch: wakes %d, want one and ready", wakes)
+	}
+	// Renderers without SetPost retain the synchronous path's contract.
+	r.pre.drain()
+	r.fetched = nil
+	r.pre.start(0)
+	if !r.Ready(nil) {
+		t.Fatal("synchronous renderer waited for asynchronous prefetch")
 	}
 }
 
@@ -180,8 +229,8 @@ func TestPendingFrames(t *testing.T) {
 	if r.pending.cb != 0 || !woke {
 		t.Fatalf("after the drawable came: pending %v, woke %v", r.pending.cb != 0, woke)
 	}
-	if !r.Ready(nil) {
-		t.Fatal("not ready once drawn")
+	if r.Ready(nil) {
+		t.Fatal("ready while the next drawable fetch is gated")
 	}
 	// A frame waiting is drawn first by a frame not paced, as a resize's.
 	frame(64, 3)

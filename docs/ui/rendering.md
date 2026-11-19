@@ -47,7 +47,7 @@ unless `MYGO_FRAME_STATS` is set. A view building a frame reads the one
 before it, which ended as it presented.
 
 MyGo draws a frame only when something changes: input, `Invalidate`,
-`After`, or an animation that moves. An idle window draws nothing, and two
+`After`, or an animation that moves. An idle window draws nothing, and sixty
 seconds after its last frame it frees the frame it drew in memory.
 
 A window animating on macOS keeps three frames for the display, one
@@ -61,6 +61,14 @@ outside sRGB) until the window idles.
 Frames that follow each other, as an animation's, draw at the display's
 refreshes, so every scene that takes less than a refresh shows the
 display's rate: 120 frames a second on a 120 Hz display, light or heavy.
+On macOS, paced frames wait while Metal fetches the next drawable, even
+when no built frame is pending. Drawable readiness schedules the next
+running display-link tick, rather than building another frame between
+ticks. First frames, paused or unavailable display links, hidden windows,
+and uncapped frames resume immediately. Timer fallback measures cadence
+from frame starts; pause detection measures idle time after a frame ends,
+so a slow build neither adds another refresh of delay nor counts as idle.
+
 Set `MYGO_UNCAPPED=1` to present frames without waiting for the display,
 to measure how much of a refresh a scene leaves, to compare two builds at
 any load, or for the least latency, as ink, remote desktops or games

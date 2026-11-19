@@ -4,7 +4,9 @@ package darwin
 
 import (
 	"testing"
+	"time"
 
+	"github.com/egoist/mygo/internal/pacing"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -12,8 +14,9 @@ import (
 // sent to draw later while wait is true.
 type frameHandler struct {
 	platform.WindowHandler
-	wait  bool
-	paced []bool
+	wait    bool
+	paced   []bool
+	onFrame func()
 }
 
 func (h *frameHandler) SurfaceEvent(ev platform.SurfaceEvent) bool {
@@ -21,6 +24,9 @@ func (h *frameHandler) SurfaceEvent(ev platform.SurfaceEvent) bool {
 		return false
 	}
 	h.paced = append(h.paced, ev.Paced)
+	if h.onFrame != nil {
+		h.onFrame()
+	}
 	return ev.Paced && h.wait
 }
 
@@ -95,6 +101,17 @@ func TestDrawSoon(t *testing.T) {
 		t.Fatalf("drew %d frames, want the one drawn meanwhile alone", len(h.paced)-1)
 	}
 
+	// Requests made during the build belong to the new frame.
+	h.onFrame = func() {
+		h.onFrame = nil
+		s.drawSoon()
+	}
+	s.frameNow(false)
+	drainMainQueue()
+	if len(h.paced) != 4 {
+		t.Fatalf("request during build: drew %d frames, want 4", len(h.paced))
+	}
+
 	// One asked for after the frame drawn meanwhile, as once the window
 	// whose first frame AppKit drew while the window was out of sight
 	// shows (SurfaceShown), still draws: dropped with the first, what
@@ -103,15 +120,91 @@ func TestDrawSoon(t *testing.T) {
 	s.frameNow(false)
 	s.drawSoon()
 	drainMainQueue()
-	if len(h.paced) != 4 || s.soon {
-		t.Fatalf("asked for after the frame drawn meanwhile: drew %d frames from the queue, want 1", len(h.paced)-3)
+	if len(h.paced) != 6 || s.soon {
+		t.Fatalf("asked for after the frame drawn meanwhile: drew %d frames from the queue, want 1", len(h.paced)-5)
 	}
 
 	// A window closed meanwhile draws none.
 	s.drawSoon()
 	s.w.closed = true
 	drainMainQueue()
-	if len(h.paced) != 4 || s.soon {
-		t.Fatalf("a closed window drew %d frames (soon %v)", len(h.paced)-4, s.soon)
+	if len(h.paced) != 6 || s.soon {
+		t.Fatalf("a closed window drew %d frames (soon %v)", len(h.paced)-6, s.soon)
 	}
+}
+
+func TestDrawableReadyPacing(t *testing.T) {
+	uncapped := pacing.Uncapped
+	defer func() { pacing.Uncapped = uncapped }()
+	for _, tc := range []struct {
+		name                     string
+		drawn, running, uncapped bool
+		wait                     bool
+	}{
+		{"running", true, true, false, true},
+		{"first", false, true, false, false},
+		{"fallback", true, false, false, false},
+		{"uncapped", true, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pacing.Uncapped = tc.uncapped
+			h := &frameHandler{wait: true}
+			s := &surface{w: &window{h: h}, drawn: tc.drawn}
+			s.frameNow(true)
+			h.wait = false
+			s.drawableReady(tc.running)
+			if tc.wait {
+				if len(h.paced) != 1 || !s.due || !s.deferred {
+					t.Fatalf("before next tick: frames %v, due %v, deferred %v", h.paced, s.due, s.deferred)
+				}
+				s.frameNow(true) // the next display-link tick
+				if len(h.paced) != 2 || !h.paced[1] || s.due || s.deferred {
+					t.Fatalf("next tick: frames %v, due %v, deferred %v", h.paced, s.due, s.deferred)
+				}
+			} else if len(h.paced) != 2 || h.paced[1] || s.deferred {
+				t.Fatalf("immediate resume: frames %v, deferred %v", h.paced, s.deferred)
+			}
+		})
+	}
+}
+
+func TestFrameRequestDuringBuild(t *testing.T) {
+	h := &frameHandler{}
+	s := &surface{w: &window{h: h}, due: true}
+	s.frameNow(false)
+	if s.due {
+		t.Fatal("frame did not coalesce the older due request")
+	}
+	h.onFrame = func() { s.due = true }
+	s.frameNow(false)
+	if !s.due {
+		t.Fatal("frame consumed a new request made during its build")
+	}
+}
+
+func TestFrameTimerStartCadence(t *testing.T) {
+	load()
+	uncapped := pacing.Uncapped
+	pacing.Uncapped = false
+	defer func() { pacing.Uncapped = uncapped }()
+	h := &frameHandler{}
+	b := &Backend{bySurface: map[id]*surface{}}
+	s := &surface{w: &window{b: b, h: h}, view: 1}
+	b.bySurface[s.view] = s
+	// Model a build spanning three refreshes without sleeping: the frame
+	// starts in the past and ends now. The next request is already due.
+	var buildEnd time.Time
+	h.onFrame = func() {
+		buildEnd = time.Now()
+		s.lastFrame = buildEnd.Add(-3 * s.refresh())
+	}
+	s.frameNow(false)
+	if s.lastFrameEnd.Before(buildEnd) || s.lastFrameEnd.Sub(s.lastFrame) < 2*s.refresh() {
+		t.Fatal("frame end did not track completion independently of its start")
+	}
+	s.RequestFrame()
+	if !s.soon || s.timing {
+		t.Fatalf("slow frame added an end-to-start timer: soon %v, timing %v", s.soon, s.timing)
+	}
+	drainMainQueue()
 }

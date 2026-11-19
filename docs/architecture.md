@@ -5839,18 +5839,21 @@ either.
     is built at once, its canvases and instances ready, and waits
     (`pendingFrame`); once the goroutine has the drawable, it has the
     main thread (`SetPost`, through `surface.Conn.Post`) draw the frame
-    into it and present it. Frames of the display link's ticks
-    (`platform.SurfaceEvent.Paced`) are not built while one waits
-    (`Renderer.Ready`, `windowHost.waitDisplay`): the next draws once it
-    was presented (`platform.PacedSurface.FrameNow`), at the time its tick
-    asked for it, so that what moves keeps its pace; the link keeps
-    ticking meanwhile. Other frames, as a resize's, draw the waiting one
-    first. Frames presented with the transaction, which change the layer,
-    take their drawable on the main thread, as the first after a pause
-    does, after any being taken. Building a frame before its drawable
-    comes, as blocking for it did, keeps the GPU as busy: building only
-    once the drawable came drew a sixth fewer frames where the GPU took
-    most of each refresh. Instances use two frame slots, for
+    into it and present it. Capped frames of the display link's ticks
+    (`platform.SurfaceEvent.Paced`) wait while a frame is pending or an
+    asynchronous fetch is in flight (`Renderer.Ready`,
+    `windowHost.waitDisplay`). Fetch completion wakes the main thread even
+    without a pending frame; pending presentation wakes it after drawing.
+    `platform.PacedSurface.FrameNow` schedules the next running link tick,
+    while first frames, hidden windows, paused or unavailable links, and
+    uncapped frames resume immediately. The link keeps ticking meanwhile.
+    A frame coalesces older due requests at its start, preserving requests
+    made during its build. Timer cadence and queued-frame deduplication use
+    frame-start time; pause detection uses frame-end time, so a slow frame
+    is not mistaken for idle. Other frames, as a resize's, draw the waiting
+    one first. Frames presented with the transaction take their drawable
+    on the main thread after any fetch in flight. Instances use two frame
+    slots, for
     the main target and each canvas, and a slot waits only for the command
     buffer that last used it. Updating an atlas or image texture in place
     still waits for every frame in flight. Rendering a canvas into its

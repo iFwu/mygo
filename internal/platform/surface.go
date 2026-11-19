@@ -137,8 +137,8 @@ type MaterialSurface interface {
 // display's refreshes, marked Paced: a renderer that waits for the display
 // lets such a frame draw once the display can take it, with FrameNow.
 type PacedSurface interface {
-	// FrameNow sends a SurfaceFrame at once, as a refresh would, for a
-	// frame a Paced one left to draw.
+	// FrameNow resumes a frame a Paced one left to draw. A running
+	// display clock may send SurfaceFrame at its next tick instead of at once.
 	FrameNow()
 }
 

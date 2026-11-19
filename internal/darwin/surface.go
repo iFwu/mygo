@@ -145,9 +145,9 @@ type surface struct {
 	// The display link runs while frames follow each other (linkRunning),
 	// and due is whether its next tick draws one. Without a display link,
 	// a timer paces frames at the display's rate: timing is true while
-	// one is due. lastFrame is when the last frame began, and framePass
-	// the pass of the run loop that drew it (caPass); resized tells that
-	// the view changed size or scale since.
+	// one is due. lastFrame is when the last frame began (timer cadence
+	// and drawSoon deduplication), and lastFrameEnd when it ended (idle
+	// detection). framePass is the run-loop pass; resized tracks size or scale.
 	linkRunning bool
 	idleTicks   int
 	due         bool
@@ -156,16 +156,17 @@ type surface struct {
 	// a frame waits for the backend's queue (drawSoon), asked for after
 	// the frame that began at soonAfter, and drawn that the content's
 	// first frame reached the surface (FirstFrame).
-	deferred  bool
-	timing    bool
-	soon      bool
-	drawn     bool
-	resized   bool
-	lastFrame time.Time
-	soonAfter time.Time
-	framePass uint64
-	cursor    platform.Cursor
-	inside    bool
+	deferred     bool
+	timing       bool
+	soon         bool
+	drawn        bool
+	resized      bool
+	lastFrame    time.Time
+	lastFrameEnd time.Time
+	soonAfter    time.Time
+	framePass    uint64
+	cursor       platform.Cursor
+	inside       bool
 	// secondaryClick is set while the primary button is down for a secondary
 	// click: a Control-click, or a press of the secondary button that an event
 	// tap posted again as a primary one.
@@ -420,7 +421,7 @@ func (s *surface) RequestFrame() {
 		switch {
 		case s.linkRunning:
 			s.due, s.idleTicks = true, 0
-		case time.Since(s.lastFrame) > 2*s.refresh() && (s.visible() || !s.drawn):
+		case time.Since(s.lastFrameEnd) > 2*s.refresh() && (s.visible() || !s.drawn):
 			// After a pause, the frame draws at once, in this pass of the
 			// run loop (drawSoon). A window out of sight waits for the
 			// link, which ticks once it shows: AppKit draws the views of
@@ -516,6 +517,7 @@ func (s *surface) drawSoon() {
 			// transaction, drawn in a pass of its own, does not show
 			// (updateLayer): the link's next tick draws it.
 			s.lastFrame = time.Now()
+			s.lastFrameEnd = s.lastFrame
 			s.RequestFrame()
 			return
 		}
@@ -540,12 +542,26 @@ func (s *surface) SetFrameRate(fps float64) {
 	msgSetRateRange(s.link, sel("setPreferredFrameRateRange:"), r)
 }
 
-// FrameNow draws a frame at once, for one the display link's tick left to
-// draw until the renderer had a drawable.
+// FrameNow resumes a frame left for a drawable. A running display link
+// paces the resume at its next tick; first frames and fallback paths draw now.
 func (s *surface) FrameNow() {
-	if !s.w.closed {
-		s.frameNow(false)
+	if s.w.closed {
+		return
 	}
+	s.drawableReady(s.link != 0 && s.linkRunning && sendBool(s.w.win, "isVisible"))
+}
+
+// drawableReady receives whether the window has a ticking display link;
+// hidden windows use the timer fallback even before the link pauses.
+func (s *surface) drawableReady(linkRunning bool) {
+	if s.w.closed {
+		return
+	}
+	if !pacing.Uncapped && s.drawn && linkRunning {
+		s.due, s.idleTicks = true, 0
+		return
+	}
+	s.frameNow(false)
 }
 
 // frameNow draws a frame now, rather than when AppKit displays the view
@@ -565,7 +581,11 @@ func (s *surface) frameNow(paced bool) {
 	s.framePass = caPass
 	armPass()
 	s.lastFrame = time.Now()
+	// This frame covers older requests, but requests made by its build
+	// remain due for the next tick.
+	s.due = false
 	s.deferred = s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: paced}) && paced
+	s.lastFrameEnd = time.Now()
 }
 
 // presentsWithTransaction reports whether the GPU renderer's CAMetalLayer
@@ -1249,6 +1269,7 @@ func registerSurfaceClass() {
 			// committing each: those frames draw at once too.
 			if send(self, "inLiveResize") == 0 && (s.resized && s.presentsWithTransaction() || !s.resized && s.framePass == caPass) {
 				s.lastFrame = time.Now()
+				s.lastFrameEnd = s.lastFrame
 				s.RequestFrame()
 				return
 			}
