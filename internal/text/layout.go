@@ -459,6 +459,7 @@ type System struct {
 	oldest, newest *cached
 	layoutBytes    int
 	frame          uint64
+	layoutFrame    uint64
 	// made counts the layouts made (LayoutsMade), and gen the times the
 	// system forgot its layouts (Generation).
 	made, gen uint64
@@ -896,8 +897,19 @@ func (s *System) Forget() {
 }
 
 // EndFrame forgets layouts no frame used for a while. The ui package calls
-// it after each frame.
+// it after each frame that built and laid out the view.
 func (s *System) EndFrame() {
+	s.endFrame(true)
+}
+
+// EndPaintFrame ends a frame that only repainted the last layout without
+// running Layout: atlas and transient mask recency advance, while cached text
+// layouts and engine shaping caches do not age out.
+func (s *System) EndPaintFrame() {
+	s.endFrame(false)
+}
+
+func (s *System) endFrame(didLayout bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, f := range s.recent {
@@ -908,8 +920,11 @@ func (s *System) EndFrame() {
 		}
 	}
 	s.frame++
-	if k, ok := s.eng.(shapingKeeper); ok {
-		k.endFrame()
+	if didLayout {
+		s.layoutFrame++
+		if k, ok := s.eng.(shapingKeeper); ok {
+			k.endFrame()
+		}
 	}
 	f, ok := s.eng.(fontForgetter)
 	if ok {
@@ -924,10 +939,13 @@ func (s *System) EndFrame() {
 		s.forgetAll(f)
 		return
 	}
+	if !didLayout {
+		return
+	}
 	for s.oldest != nil && s.overLayoutBudget(0) {
 		s.removeLayout(s.oldest)
 	}
-	for s.oldest != nil && s.frame-s.oldest.used > 240 {
+	for s.oldest != nil && s.layoutFrame-s.oldest.used > 240 {
 		s.removeLayout(s.oldest)
 	}
 }
@@ -1107,7 +1125,7 @@ const (
 func (s *System) roomBesideLive(n int) bool {
 	free, count := maxLiveLayoutBytes-s.layoutBytes, len(s.layouts)
 	for c := s.oldest; free < n || count >= maxLayouts; c = c.next {
-		if c == nil || s.frame-c.used < liveLayoutFrames {
+		if c == nil || s.layoutFrame-c.used < liveLayoutFrames {
 			return false
 		}
 		free, count = free+c.bytes, count-1
@@ -1122,7 +1140,7 @@ func (s *System) roomBesideLive(n int) bool {
 // while all windows are idle.
 func (s *System) overLayoutBudget(n int) bool {
 	return s.layoutBytes+n > maxLiveLayoutBytes ||
-		s.layoutBytes+n > maxLayoutBytes && s.oldest != nil && s.frame-s.oldest.used >= liveLayoutFrames
+		s.layoutBytes+n > maxLayoutBytes && s.oldest != nil && s.layoutFrame-s.oldest.used >= liveLayoutFrames
 }
 
 func layoutBytes(c *cached) int {
@@ -1158,7 +1176,7 @@ func (s *System) unlinkLayout(c *cached) {
 }
 
 func (s *System) useLayout(c *cached) {
-	c.used = s.frame
+	c.used = s.layoutFrame
 	if s.newest == c {
 		return
 	}

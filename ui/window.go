@@ -445,7 +445,7 @@ const wideHold = 2 * time.Second
 // frameIdle is how long after the last frame the host frees the frame
 // drawn in memory, as large as the window, and the surface gives back what
 // its frames took (platform.IdleSurface). The next frame draws whole.
-const frameIdle = 2 * time.Second
+const frameIdle = 60 * time.Second
 
 func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
 

@@ -2011,8 +2011,9 @@ func (r *Renderer) releaseTextures() {
 }
 
 // trimAfter is how long a window draws nothing before its spare drawables
-// go: about when the Metal driver frees its own memory of frames.
-const trimAfter = 2 * time.Second
+// and GPU textures go. Keeping them warm across short pauses avoids
+// re-uploading atlases and re-creating drawables when interaction resumes.
+const trimAfter = 60 * time.Second
 
 // armTrim has the renderer's timer trim the drawables once it draws
 // nothing for trimAfter.

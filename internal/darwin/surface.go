@@ -131,6 +131,12 @@ func armPass() {
 	caPassArmed = true
 }
 
+// linkIdleTicks is the number of consecutive idle display-link ticks before
+// CADisplayLink pauses: 3 tolerates two missed refreshes (60/90 Hz input on a
+// 120 Hz display or a single slow frame) while pausing at ~25 ms at 120 Hz,
+// before a 30 Hz Painter.After repaint arrives.
+const linkIdleTicks = 3
+
 type surface struct {
 	w        *window
 	view     id
@@ -143,6 +149,7 @@ type surface struct {
 	// the pass of the run loop that drew it (caPass); resized tells that
 	// the view changed size or scale since.
 	linkRunning bool
+	idleTicks   int
 	due         bool
 	// deferred tells that the content left the last paced frame to draw
 	// later (FrameNow): the link keeps running meanwhile. soon tells that
@@ -412,7 +419,7 @@ func (s *surface) RequestFrame() {
 	if s.link != 0 && sendBool(s.w.win, "isVisible") {
 		switch {
 		case s.linkRunning:
-			s.due = true
+			s.due, s.idleTicks = true, 0
 		case time.Since(s.lastFrame) > 2*s.refresh() && (s.visible() || !s.drawn):
 			// After a pause, the frame draws at once, in this pass of the
 			// run loop (drawSoon). A window out of sight waits for the
@@ -426,7 +433,7 @@ func (s *surface) RequestFrame() {
 			// refreshes; the link keeps running while they come, rather
 			// than pausing after each, which costs a call to the window
 			// server.
-			s.due, s.linkRunning = true, true
+			s.due, s.linkRunning, s.idleTicks = true, true, 0
 			send(s.link, "setPaused:", 0)
 		}
 		return
@@ -554,6 +561,7 @@ func (s *surface) FrameNow() {
 // more: deferred holds only while the last frame sent was left.
 func (s *surface) frameNow(paced bool) {
 	s.resized = false
+	s.idleTicks = 0
 	s.framePass = caPass
 	armPass()
 	s.lastFrame = time.Now()
@@ -1248,15 +1256,23 @@ func registerSurfaceClass() {
 		}),
 		method("mygoTick:", func(self id, _ objc.SEL, link id) {
 			s := b().surfaceOf(self)
-			if s == nil || !s.due && !s.deferred {
-				// No frame was asked for since the last refresh, nor
-				// does the content wait to draw the last one.
+			if s == nil {
 				send(link, "setPaused:", 1)
-				if s != nil {
+				return
+			}
+			if !s.due && !s.deferred {
+				// Tolerate two idle refreshes (e.g. 60/90 Hz input on a 120 Hz
+				// display or one slow frame) before pausing the display link,
+				// while still pausing before a 30 Hz Painter.After repaint.
+				s.idleTicks++
+				if s.w.closed || !sendBool(s.w.win, "isVisible") || s.idleTicks >= linkIdleTicks {
+					send(link, "setPaused:", 1)
 					s.linkRunning = false
+					s.idleTicks = 0
 				}
 				return
 			}
+			s.idleTicks = 0
 			s.due = false
 			if sendBool(send(self, "layer"), "needsDisplay") {
 				// AppKit displays the view in this pass, as after a

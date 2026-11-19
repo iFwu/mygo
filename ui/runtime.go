@@ -1220,7 +1220,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.insp.repainted(time.Since(start))
 	rt.host.present(&rt.scene)
 	rt.stats.lap(phasePresent)
-	rt.text.EndFrame()
+	rt.text.EndPaintFrame()
 	rt.next()
 	rt.stats.end(rt)
 }

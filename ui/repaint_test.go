@@ -668,3 +668,33 @@ func TestRepaintPartsContentTransition(t *testing.T) {
 		}
 	}
 }
+
+func TestRepaintFrameKeepsCachedTextLayouts(t *testing.T) {
+	tt := newRepaintTester(func(c *context) {
+		coreColumn(c).Children(func() {
+			coreText(c, "cached text survives paint-only ticks")
+			coreBox(c).Size(24, 24).Draw(func(p *Painter, r Rect) {
+				p.After(time.Second / 30)
+				p.Fill(r, RGB(0, 128, 255), 2)
+			})
+		})
+	})
+	tt.Frame()
+	made := tt.rt.text.LayoutsMade()
+
+	for range 300 {
+		tt.clock = tt.rt.repaintDue
+		tt.rt.repaintNow()
+		if built, _ := tt.frame(0); built {
+			t.Fatal("expected paint-only frame, got full rebuild")
+		}
+	}
+
+	tt.rt.changed()
+	if built, _ := tt.frame(time.Millisecond); !built {
+		t.Fatal("expected full rebuild after changed()")
+	}
+	if got := tt.rt.text.LayoutsMade() - made; got != 0 {
+		t.Fatalf("paint-only repaints evicted cached text layouts: %d new layouts made on next build", got)
+	}
+}

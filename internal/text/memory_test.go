@@ -313,3 +313,29 @@ func TestOversizedParagraphEvictsUnusedLayouts(t *testing.T) {
 		t.Fatal("the unused layouts survived")
 	}
 }
+
+func TestEndPaintFrameKeepsCachedLayouts(t *testing.T) {
+	s := newSystem()
+	s.eng = &stubEngine{}
+	p := Params{Text: "retained across paint-only frames"}
+	first := s.Layout(p)
+	s.EndFrame()
+	s.recent[42] = s.frame
+
+	for range 300 {
+		s.EndPaintFrame()
+	}
+	if _, ok := s.recent[42]; ok {
+		t.Fatal("EndPaintFrame did not advance mask recency")
+	}
+	if got := s.Layout(p); got != first {
+		t.Fatal("EndPaintFrame evicted cached text layout")
+	}
+
+	for range 241 {
+		s.EndFrame()
+	}
+	if len(s.layouts) != 0 || s.layoutBytes != 0 {
+		t.Fatal("EndFrame did not expire unused layout after 241 layout frames")
+	}
+}
