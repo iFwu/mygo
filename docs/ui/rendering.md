@@ -40,6 +40,12 @@ nothing. Frames that follow each other wait for the display's next
 refresh, and present may wait for it too; to see how fast frames could
 come, set `MYGO_UNCAPPED=1` as well ([Frame pacing](#frame-pacing)).
 
+A view can read the same measures of the window's last frame with
+`Context.FrameStats`, to show them in the window, as a frame meter does:
+the window measures its frames from the first call on, and logs none
+unless `MYGO_FRAME_STATS` is set. A view building a frame reads the one
+before it, which ended as it presented.
+
 MyGo draws a frame only when something changes: input, `Invalidate`,
 `After`, or an animation that moves. An idle window draws nothing, and two
 seconds after its last frame it frees the frame it drew in memory.
