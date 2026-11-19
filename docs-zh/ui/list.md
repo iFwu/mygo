@@ -161,7 +161,7 @@ ui.List(c, &app.chats, len(app.items)).Grow(1).Rows(func(row ui.ListRow) {
 
 ## 滚动
 
-`ScrollTo(row, align)` 把一行显示在列表的 `ui.Start`、`ui.Center` 或 `ui.End` 处，`ScrollIntoView(row)` 以最少的滚动显示它，`ScrollToEnd` 则滚到末尾，包括尚未构建的行：列表会在布局这一帧时滚动到行测量后所在的位置。`Visible` 返回上一帧视口中的第一行和最后一行，`AtEnd` 说明上一帧末尾是否显示，用于视图要显示的内容，比如一个跳到最新消息的按钮。
+`ScrollTo(row, align)` 把一行显示在列表的 `ui.Start`、`ui.Center` 或 `ui.End` 处，`ScrollIntoView(row)` 以最少的滚动显示它，`ScrollToEnd` 则滚到末尾，包括尚未构建的行：列表会在布局这一帧时滚动到行测量后所在的位置。`Visible` 返回上一帧视口中的第一行和最后一行，`Shows(first, last)` 说明上一帧这些行中是否有一行显示，`AtEnd` 说明上一帧末尾是否显示，用于视图要显示的内容，比如一个跳到最新消息的按钮。某一帧改变了视图读到的结果时会再构建一帧，让视图看到它：`Visible` 随滚过的每一行而变，`Shows` 和 `AtEnd` 只在其行或末尾进入、离开视口时才变，所以读取它们的视图在用户于中间滚动时不多花帧。
 
 一个聊天：
 
@@ -169,7 +169,7 @@ ui.List(c, &app.chats, len(app.items)).Grow(1).Rows(func(row ui.ListRow) {
 app.chat.Key = func(i int) any { return app.messages[i].ID }
 app.chat.FollowEnd = true
 app.chat.FollowAnimation = &ui.Smooth
-if first, _ := app.chat.Visible(); first < 5 && app.more {
+if app.chat.Shows(0, 4) && app.more {
 	app.loadOlder() // above the messages in view, which stay put
 }
 if !app.chat.AtEnd() && ui.Button(c, "Jump to latest").Clicked() {

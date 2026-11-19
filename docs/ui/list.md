@@ -273,9 +273,13 @@ In a list that chooses no rows, `Pressed` makes the row take the press.
 `ui.End` of the list, `ScrollIntoView(row)` scrolls as little as shows it,
 and `ScrollToEnd` scrolls to the end, rows not built yet included: the list
 scrolls as the frame is laid out, to where the row is once measured.
-`Visible` returns the first and last rows in view in the last frame and
-`AtEnd` whether the end showed, for what the view shows, as a button to jump
-to the latest message.
+`Visible` returns the first and last rows in view in the last frame,
+`Shows(first, last)` whether any of those rows showed, and `AtEnd` whether
+the end showed, for what the view shows, as a button to jump to the latest
+message. A frame that changes what the view read builds another, which sees
+it: `Visible` changes with each row scrolled past, `Shows` and `AtEnd` only
+as their rows or the end come into view or leave it, so a view reading them
+costs no frames while the user scrolls between.
 
 A chat:
 
@@ -283,7 +287,7 @@ A chat:
 app.chat.Key = func(i int) any { return app.messages[i].ID }
 app.chat.FollowEnd = true
 app.chat.FollowAnimation = &ui.Smooth
-if first, _ := app.chat.Visible(); first < 5 && app.more {
+if app.chat.Shows(0, 4) && app.more {
 	app.loadOlder() // above the messages in view, which stay put
 }
 if !app.chat.AtEnd() && ui.Button(c, "Jump to latest").Clicked() {

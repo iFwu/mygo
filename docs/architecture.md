@@ -4223,7 +4223,9 @@ either.
   jump, and each element remembers the `ListState` that placed it last. A
   scroll bar's thumb keeps the content's size of when it was grabbed until
   it is let go, as rows measured meanwhile change it, and a frame that
-  moved a list whose `Visible` or `AtEnd` the view read builds another.
+  changes what the view read of a list builds another (`remember`): the
+  rows in view for `Visible`, and for `Shows` and `AtEnd` only their
+  answers, each span `Shows` was asked about kept until the layout.
   `EndReached` is called after the frame is laid out (`callListEnds`,
   before `next`, which builds another frame for what it changed): each
   layout checks whether the rows in view are within `NearEnd` of the end

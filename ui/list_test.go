@@ -892,6 +892,46 @@ func TestListViewSeesWhereItIs(t *testing.T) {
 	}
 }
 
+func TestListShowsBuildsOnlyAsItChanges(t *testing.T) {
+	// A chat paging in older messages as its first rows come into view,
+	// with a button while away from its end: scrolling past the rows
+	// between builds one frame an event, and the frames that bring the
+	// first rows or the end into view or out of it build another, which
+	// sees it.
+	s := ListState{FollowEnd: true}
+	builds, top, end := 0, false, false
+	tt := coreNewTester(func(c *context) {
+		builds++
+		top, end = s.Shows(0, 1), s.AtEnd()
+		coreList(c, &s, 500, func(i int) { coreBox(c).Height(30) }).Grow(1)
+	}, 300, 400)
+	tt.Move(150, 200)
+	tt.Scroll(150, 200, 0, -2000)
+	if top || end {
+		t.Fatalf("scrolled up from the end: the first rows show %v, the end %v", top, end)
+	}
+	// 70 steps of 11 DIPs cross 25 rows of 30.
+	for k := range 70 {
+		builds = 0
+		tt.Scroll(150, 200, 0, -11)
+		if builds != 1 {
+			t.Fatalf("step %d past rows in the middle built %d times", k, builds)
+		}
+	}
+	tt.Scroll(150, 200, 0, -20000)
+	if !top {
+		t.Error("scrolled to the top: the view did not see the first rows")
+	}
+	tt.Scroll(150, 200, 0, 100)
+	if top {
+		t.Error("scrolled away from the top: the view still sees the first rows")
+	}
+	tt.Scroll(150, 200, 0, 20000)
+	if !end {
+		t.Error("scrolled to the end: the view did not see it")
+	}
+}
+
 func TestListKeepsPlaceAcrossResizes(t *testing.T) {
 	// Rows of text that wraps anew at each width.
 	var s ListState

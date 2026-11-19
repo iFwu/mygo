@@ -303,9 +303,12 @@ type ListState struct {
 	border      float64
 	first, last int
 	atEnd       bool
-	// read is set when the view read where the list is, which a frame
-	// that moves it then builds another for.
-	read bool
+	// What the view read of where the list is, which a frame that changes
+	// it then builds another for: readRows the rows in view (Visible),
+	// readEnd whether the end showed (AtEnd), and shown the spans of rows
+	// Shows was asked about.
+	readRows, readEnd bool
+	shown             []listSpan
 	// selRow is the row chosen in the last frame and selKey its key, to
 	// tell the app choosing another from rows moving.
 	selRow int
@@ -450,22 +453,44 @@ func (s *ListState) HoldPlace() { s.following = false }
 
 // Visible returns the first and the last row the list showed in the last
 // frame, last below first when it showed none. A frame that changes them
-// builds another, for what read them. To load more as the user nears the
-// end of what was loaded, use EndReached, which the list calls after
-// layout, rather than reading Visible as the view builds.
+// builds another, for what read them: each row the user scrolls past
+// costs a frame. A view that asks whether some rows showed, as one paging
+// in older messages as the first come near, reads Shows instead. To load
+// more as the user nears the end of what was loaded, use EndReached, which
+// the list calls after layout, rather than reading Visible as the view
+// builds.
 func (s *ListState) Visible() (first, last int) {
-	s.read = true
+	s.readRows = true
 	if !s.laidOut {
 		return 0, -1
 	}
 	return s.first, s.last
 }
 
-// AtEnd reports whether the list showed its end in the last frame, as
-// Visible does its rows.
+// Shows reports whether the list showed any of the rows first to last in
+// the last frame. A frame that changes the answer builds another, for
+// what read it, and only such a frame: scrolling past other rows does not.
+func (s *ListState) Shows(first, last int) bool {
+	span := listSpan{first, last}
+	if !slices.Contains(s.shown, span) {
+		s.shown = append(s.shown, span)
+	}
+	return s.laidOut && span.in(s.first, s.last)
+}
+
+// AtEnd reports whether the list showed its end in the last frame. A
+// frame that changes that builds another, as Shows does.
 func (s *ListState) AtEnd() bool {
-	s.read = true
+	s.readEnd = true
 	return s.atEnd
+}
+
+// A listSpan is rows first to last that Shows was asked about.
+type listSpan struct{ first, last int }
+
+// in reports whether the rows first to last in view hold one of the span.
+func (p listSpan) in(first, last int) bool {
+	return first <= last && first <= p.last && p.first <= last
 }
 
 // Focused reports whether the List, Table or Outline using s has
@@ -1937,10 +1962,17 @@ func (e *node) relayoutList(ch *node, y float64) {
 // for a view that read where it was.
 func (s *ListState) remember(e *node, first, last int, atEnd bool, scroll float64) {
 	f, n := e.list, e.list.n
-	if s.read && (first != s.first || last != s.last || atEnd != s.atEnd) {
+	if s.readRows && (first != s.first || last != s.last) || s.readEnd && atEnd != s.atEnd {
 		e.c.rt.animating = true
 	}
-	s.laidOut, s.wroteY, s.req, s.read = true, scroll, listRequest{}, false
+	for _, p := range s.shown {
+		if (s.laidOut && p.in(s.first, s.last)) != p.in(first, last) {
+			e.c.rt.animating = true
+			break
+		}
+	}
+	s.laidOut, s.wroteY, s.req = true, scroll, listRequest{}
+	s.readRows, s.readEnd, s.shown = false, false, s.shown[:0]
 	s.first, s.last, s.atEnd = first, last, atEnd
 	s.reachEnd(e.c.rt, first, last, n)
 	s.following = atEnd
