@@ -381,8 +381,9 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 // waits for the GPU renderer to be able to draw it, or for the display's
 // refresh after a frame drawn in memory (waiter): rather than wait on
 // the main thread, as for a drawable the display holds most of a refresh,
-// the frame draws once it can, built with the input that came meanwhile,
-// at the time it was asked for, so that what moves keeps its pace.
+// the frame draws once it can, built with the input that came meanwhile.
+// A surface resuming it at once uses the time it was asked for; one
+// deferring the wake to another tick uses that tick's time.
 func (h *windowHost) waitDisplay(at time.Time) bool {
 	w := h.waiter()
 	p, paced := h.conn.Surface.(platform.PacedSurface)
@@ -401,6 +402,7 @@ func (h *windowHost) waitDisplay(at time.Time) bool {
 			h.waiting, h.waitingOn = false, nil
 			h.rt.frameAt = h.waitedAt
 			p.FrameNow()
+			h.rt.frameAt = time.Time{}
 		}
 		h.wake = func() { h.conn.Post(h.displayReady) }
 	}

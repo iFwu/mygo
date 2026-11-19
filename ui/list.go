@@ -490,7 +490,7 @@ type listSpan struct{ first, last int }
 
 // in reports whether the rows first to last in view hold one of the span.
 func (p listSpan) in(first, last int) bool {
-	return first <= last && first <= p.last && p.first <= last
+	return p.first <= p.last && first <= last && first <= p.last && p.first <= last
 }
 
 // Focused reports whether the List, Table or Outline using s has

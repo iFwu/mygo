@@ -932,6 +932,21 @@ func TestListShowsBuildsOnlyAsItChanges(t *testing.T) {
 	}
 }
 
+func TestListShowsEmptyRanges(t *testing.T) {
+	var s ListState
+	coreNewTester(func(c *context) {
+		coreList(c, &s, 10, func(i int) { coreBox(c).Height(20) }).Grow(1)
+	}, 300, 400)
+	if !s.Shows(5, 5) {
+		t.Fatal("row 5 is outside the test viewport")
+	}
+	for _, span := range []listSpan{{5, 2}, {0, -1}, {11, 10}} {
+		if s.Shows(span.first, span.last) {
+			t.Errorf("empty range %d..%d showed", span.first, span.last)
+		}
+	}
+}
+
 func TestListKeepsPlaceAcrossResizes(t *testing.T) {
 	// Rows of text that wraps anew at each width.
 	var s ListState

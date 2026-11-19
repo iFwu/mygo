@@ -1843,6 +1843,7 @@ func TestWindowPixels(handle uintptr) (img *image.RGBA, ok bool) {
 func TestPauseFrames(handle uintptr) {
 	if w := theBackend.byNSWindow[id(handle)]; w != nil && w.surface != nil {
 		w.surface.lastFrame = time.Time{}
+		w.surface.lastFrameEnd = time.Time{}
 	}
 }
 

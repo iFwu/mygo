@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ebitengine/purego/objc"
 	"github.com/egoist/mygo/internal/pacing"
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -207,4 +208,39 @@ func TestFrameTimerStartCadence(t *testing.T) {
 		t.Fatalf("slow frame added an end-to-start timer: soon %v, timing %v", s.soon, s.timing)
 	}
 	drainMainQueue()
+}
+
+func TestIdleFrameRequestStartsDisplayLink(t *testing.T) {
+	load()
+	uncapped := pacing.Uncapped
+	pacing.Uncapped = false
+	defer func() { pacing.Uncapped = uncapped }()
+	const name = "MyGoFrameRequestTestWindow"
+	if objc.GetClass(name) == 0 {
+		classDef(name, "NSObject", nil, []objc.MethodDef{
+			method("isVisible", func(id, objc.SEL) bool { return true }),
+			method("occlusionState", func(id, objc.SEL) int { return 2 }),
+			method("screen", func(id, objc.SEL) id { return 0 }),
+			method("setPaused:", func(id, objc.SEL, bool) {}),
+		})
+	}
+	win := alloc(name)
+	defer send(win, "release")
+	h := &frameHandler{}
+	b := &Backend{bySurface: map[id]*surface{}}
+	s := &surface{w: &window{b: b, h: h, win: win}, view: 1, link: win, drawn: true, lastFrameEnd: time.Now().Add(-time.Second)}
+	b.bySurface[s.view] = s
+	h.onFrame = func() {
+		h.onFrame = nil
+		s.RequestFrame()
+	}
+	s.RequestFrame()
+	drainMainQueue()
+	if len(h.paced) != 1 || h.paced[0] || !s.linkRunning || !s.due || s.soon {
+		t.Fatalf("idle input and its next request: frames %v, link %v, due %v, soon %v", h.paced, s.linkRunning, s.due, s.soon)
+	}
+	s.frameNow(true)
+	if len(h.paced) != 2 || !h.paced[1] {
+		t.Fatalf("next tick: frames %v, want the requested paced frame", h.paced)
+	}
 }

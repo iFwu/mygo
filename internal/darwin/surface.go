@@ -161,6 +161,7 @@ type surface struct {
 	soon         bool
 	drawn        bool
 	resized      bool
+	inFrame      bool
 	lastFrame    time.Time
 	lastFrameEnd time.Time
 	soonAfter    time.Time
@@ -421,7 +422,7 @@ func (s *surface) RequestFrame() {
 		switch {
 		case s.linkRunning:
 			s.due, s.idleTicks = true, 0
-		case time.Since(s.lastFrameEnd) > 2*s.refresh() && (s.visible() || !s.drawn):
+		case !s.inFrame && time.Since(s.lastFrameEnd) > 2*s.refresh() && (s.visible() || !s.drawn):
 			// After a pause, the frame draws at once, in this pass of the
 			// run loop (drawSoon). A window out of sight waits for the
 			// link, which ticks once it shows: AppKit draws the views of
@@ -584,6 +585,8 @@ func (s *surface) frameNow(paced bool) {
 	// This frame covers older requests, but requests made by its build
 	// remain due for the next tick.
 	s.due = false
+	s.inFrame = true
+	defer func() { s.inFrame = false }()
 	s.deferred = s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: paced}) && paced
 	s.lastFrameEnd = time.Now()
 }
