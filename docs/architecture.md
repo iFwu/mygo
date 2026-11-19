@@ -5839,14 +5839,12 @@ either.
     is built at once, its canvases and instances ready, and waits
     (`pendingFrame`); once the goroutine has the drawable, it has the
     main thread (`SetPost`, through `surface.Conn.Post`) draw the frame
-    into it and present it. Capped frames of the display link's ticks
-    (`platform.SurfaceEvent.Paced`) wait while a frame is pending or an
-    asynchronous fetch is in flight (`Renderer.Ready`,
-    `windowHost.waitDisplay`). Fetch completion wakes the main thread even
-    without a pending frame; pending presentation wakes it after drawing.
-    `platform.PacedSurface.FrameNow` schedules the next running link tick,
-    while first frames, hidden windows, paused or unavailable links, and
-    uncapped frames resume immediately. The link keeps ticking meanwhile.
+    into it and present it. Frames of the display link's ticks
+    (`platform.SurfaceEvent.Paced`) wait while a built frame is pending
+    (`Renderer.Ready`, `windowHost.waitDisplay`), but may build while only
+    an asynchronous fetch is in flight. Pending presentation wakes the
+    waiting frame through `platform.PacedSurface.FrameNow`, which draws
+    it at once. The link keeps ticking meanwhile.
     A frame coalesces older due requests at its start, preserving requests
     made during its build. Timer cadence and queued-frame deduplication use
     frame-start time; pause detection uses frame-end time, so a slow frame

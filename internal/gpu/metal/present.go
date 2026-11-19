@@ -18,10 +18,9 @@ import (
 // never waits for the display. nextDrawable blocks while the layer's
 // drawables are all in use, as the display holds them until its next
 // refreshes: a frame following another would wait most of a refresh,
-// with the main thread able to do nothing else. Instead, an unpaced frame
-// that comes while the presenter fetches is built and waits (pendingFrame),
-// and the main thread draws it once the drawable comes; capped paced frames
-// wait before building while a frame or asynchronous fetch is pending (Ready).
+// with the main thread able to do nothing else. Instead, a frame that
+// comes while the presenter fetches is built and waits (pendingFrame),
+// and the main thread draws it once the drawable comes.
 //
 // The main thread waits for a fetch in flight before changing the layer
 // (its drawables' size or format, presenting with the transaction,
@@ -170,8 +169,8 @@ type pendingFrame struct {
 }
 
 // SetPost gives the renderer post, which runs a function on the main
-// thread from any goroutine: an unpaced frame may build while its drawable
-// is being fetched, and draws once the presenter has it, through post.
+// thread from any goroutine: a frame may build while its drawable is
+// being fetched, and draws once the presenter has it, through post.
 // Without it, frames wait for their drawable.
 func (r *Renderer) SetPost(post func(func())) {
 	r.post = post
@@ -185,7 +184,6 @@ func (r *Renderer) SetPost(post func(func())) {
 				return
 			}
 			if r.pending.cb == 0 {
-				r.wakeContent()
 				return
 			}
 			if err := r.finishPending(true); err != nil {
@@ -279,7 +277,7 @@ func (r *Renderer) dropPending() {
 	r.wakeContent()
 }
 
-// wakeContent runs what Ready was given while a frame or fetch was pending.
+// wakeContent runs what Ready was given while a frame was pending.
 func (r *Renderer) wakeContent() {
 	if w := r.wake; w != nil {
 		r.wake = nil

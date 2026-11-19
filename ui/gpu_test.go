@@ -354,40 +354,6 @@ func (g *waitingGPU) Ready(wake func()) bool {
 	return false
 }
 
-type deferredPacedSurface struct{ pacedSurface }
-
-func (s *deferredPacedSurface) FrameNow() { s.now++ }
-
-func TestDeferredPacedFrameUsesNextTickTime(t *testing.T) {
-	g := &waitingGPU{ready: true}
-	h, _, frame := gpuHost(t, func() (gpuRenderer, error) { return g, nil })
-	s := &deferredPacedSurface{pacedSurface: pacedSurface{h: h}}
-	var posted []func()
-	h.conn.Surface = s
-	h.conn.Post = func(fn func()) { posted = append(posted, fn) }
-	frame()
-	g.ready = false
-	h.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: true})
-	asked := h.waitedAt
-	now := asked.Add(5 * time.Millisecond)
-	h.rt.clock = func() time.Time { return now }
-	g.ready = true
-	g.wake()
-	for _, fn := range posted {
-		fn()
-	}
-	if g.frames != 1 || s.now != 1 {
-		t.Fatalf("drawable wake drew %d frames; want the initial frame alone", g.frames)
-	}
-	for tick := 1; tick <= 2; tick++ {
-		now = asked.Add(time.Duration(tick) * (time.Second / 60))
-		h.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: true})
-		if h.rt.c.now != now {
-			t.Fatalf("tick %d built at %v, want native tick %v", tick, h.rt.c.now, now)
-		}
-	}
-}
-
 // TestPacedFrameWaitsForTheDisplay checks that a frame paced by the
 // display waits, without drawing, for the GPU renderer to be able to draw
 // it, and draws once it wakes the window, through the main thread.

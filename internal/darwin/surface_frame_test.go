@@ -134,41 +134,6 @@ func TestDrawSoon(t *testing.T) {
 	}
 }
 
-func TestDrawableReadyPacing(t *testing.T) {
-	uncapped := pacing.Uncapped
-	defer func() { pacing.Uncapped = uncapped }()
-	for _, tc := range []struct {
-		name                     string
-		drawn, running, uncapped bool
-		wait                     bool
-	}{
-		{"running", true, true, false, true},
-		{"first", false, true, false, false},
-		{"fallback", true, false, false, false},
-		{"uncapped", true, true, true, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			pacing.Uncapped = tc.uncapped
-			h := &frameHandler{wait: true}
-			s := &surface{w: &window{h: h}, drawn: tc.drawn}
-			s.frameNow(true)
-			h.wait = false
-			s.drawableReady(tc.running)
-			if tc.wait {
-				if len(h.paced) != 1 || !s.due || !s.deferred {
-					t.Fatalf("before next tick: frames %v, due %v, deferred %v", h.paced, s.due, s.deferred)
-				}
-				s.frameNow(true) // the next display-link tick
-				if len(h.paced) != 2 || !h.paced[1] || s.due || s.deferred {
-					t.Fatalf("next tick: frames %v, due %v, deferred %v", h.paced, s.due, s.deferred)
-				}
-			} else if len(h.paced) != 2 || h.paced[1] || s.deferred {
-				t.Fatalf("immediate resume: frames %v, deferred %v", h.paced, s.deferred)
-			}
-		})
-	}
-}
-
 func TestFrameRequestDuringBuild(t *testing.T) {
 	h := &frameHandler{}
 	s := &surface{w: &window{h: h}, due: true}

@@ -64,7 +64,7 @@ func TestPresenter(t *testing.T) {
 	}
 }
 
-func TestReadyWaitsForPrefetch(t *testing.T) {
+func TestReadyAllowsBuildDuringPrefetch(t *testing.T) {
 	if err := load(); err != nil {
 		t.Skip("no Objective-C runtime:", err)
 	}
@@ -83,32 +83,10 @@ func TestReadyWaitsForPrefetch(t *testing.T) {
 		r.pre.stop()
 		nextDrawable = next
 	}()
-	posted := make(chan func(), 1)
-	r.SetPost(func(fn func()) { posted <- fn })
-	r.pre.start(0)
-	wakes := 0
-	if r.Ready(func() { wakes++ }) || r.pending.cb != 0 {
-		t.Fatal("ready during a fetch with no pending frame")
-	}
-	if wakes != 0 {
-		t.Fatal("woke before fetching finished")
-	}
-	gate <- struct{}{}
-	finish := wait.For(t, "the drawable-ready post", posted)
-	if wakes != 0 {
-		t.Fatal("wake ran outside the posted main-thread callback")
-	}
-	finish()
-	finish() // a stale post must not repeat the wake
-	if wakes != 1 || !r.Ready(nil) {
-		t.Fatalf("after fetch: wakes %d, want one and ready", wakes)
-	}
-	// Renderers without SetPost retain the synchronous path's contract.
-	r.pre.drain()
-	r.fetched = nil
+	r.SetPost(func(func()) {})
 	r.pre.start(0)
 	if !r.Ready(nil) {
-		t.Fatal("synchronous renderer waited for asynchronous prefetch")
+		t.Fatal("a drawable fetch delayed building a frame with no pending predecessor")
 	}
 }
 
@@ -229,8 +207,8 @@ func TestPendingFrames(t *testing.T) {
 	if r.pending.cb != 0 || !woke {
 		t.Fatalf("after the drawable came: pending %v, woke %v", r.pending.cb != 0, woke)
 	}
-	if r.Ready(nil) {
-		t.Fatal("ready while the next drawable fetch is gated")
+	if !r.Ready(nil) {
+		t.Fatal("the next frame could not build while its drawable was being fetched")
 	}
 	// A frame waiting is drawn first by a frame not paced, as a resize's.
 	frame(64, 3)

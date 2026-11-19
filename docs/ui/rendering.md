@@ -61,13 +61,13 @@ outside sRGB) until the window idles.
 Frames that follow each other, as an animation's, draw at the display's
 refreshes, so every scene that takes less than a refresh shows the
 display's rate: 120 frames a second on a 120 Hz display, light or heavy.
-On macOS, paced frames wait while Metal fetches the next drawable, even
-when no built frame is pending. Drawable readiness schedules the next
-running display-link tick, rather than building another frame between
-ticks. First frames, paused or unavailable display links, hidden windows,
-and uncapped frames resume immediately. Timer fallback measures cadence
-from frame starts; pause detection measures idle time after a frame ends,
-so a slow build neither adds another refresh of delay nor counts as idle.
+On macOS, CPU frame building overlaps the next drawable's asynchronous
+fetch. A built frame waiting for a drawable holds the following paced
+frame, which resumes when the pending frame presents. This preserves
+throughput on high-resolution and high-refresh displays. Timer cadence
+uses frame-start time; pause detection uses frame-end time and excludes
+requests made inside a frame, so a slow build or an idle frame's animation
+request does not queue an extra immediate rebuild.
 
 Set `MYGO_UNCAPPED=1` to present frames without waiting for the display,
 to measure how much of a refresh a scene leaves, to compare two builds at

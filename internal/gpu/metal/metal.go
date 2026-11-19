@@ -1715,11 +1715,11 @@ func hasHoles(s *scene.Scene) bool {
 	return false
 }
 
-// Ready reports whether a frame can build without waiting for a pending
-// frame or an asynchronous drawable fetch (present.go); otherwise wake
-// runs on the main thread after the pending presentation or fetch.
+// Ready reports whether another frame can build, with no built frame
+// waiting for its drawable (present.go); otherwise wake runs on the main
+// thread after that pending frame presents.
 func (r *Renderer) Ready(wake func()) bool {
-	if r.pending.cb == 0 && (pacing.Uncapped || r.fetched == nil || r.pre.ready(r.fetched)) {
+	if r.pending.cb == 0 {
 		return true
 	}
 	r.wake = wake

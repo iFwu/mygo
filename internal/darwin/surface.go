@@ -543,26 +543,12 @@ func (s *surface) SetFrameRate(fps float64) {
 	msgSetRateRange(s.link, sel("setPreferredFrameRateRange:"), r)
 }
 
-// FrameNow resumes a frame left for a drawable. A running display link
-// paces the resume at its next tick; first frames and fallback paths draw now.
+// FrameNow draws a frame at once, for one the display link's tick left to
+// draw until the renderer had a drawable.
 func (s *surface) FrameNow() {
-	if s.w.closed {
-		return
+	if !s.w.closed {
+		s.frameNow(false)
 	}
-	s.drawableReady(s.link != 0 && s.linkRunning && sendBool(s.w.win, "isVisible"))
-}
-
-// drawableReady receives whether the window has a ticking display link;
-// hidden windows use the timer fallback even before the link pauses.
-func (s *surface) drawableReady(linkRunning bool) {
-	if s.w.closed {
-		return
-	}
-	if !pacing.Uncapped && s.drawn && linkRunning {
-		s.due, s.idleTicks = true, 0
-		return
-	}
-	s.frameNow(false)
 }
 
 // frameNow draws a frame now, rather than when AppKit displays the view
