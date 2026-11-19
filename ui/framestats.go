@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime/metrics"
 	"strconv"
@@ -65,7 +66,8 @@ const (
 	stats
 )
 
-// frameStats measures a frame for MYGO_FRAME_STATS.
+// frameStats measures a frame for MYGO_FRAME_STATS, and for views that
+// read the measures (Context.FrameStats).
 type frameStats struct {
 	threshold   time.Duration
 	start, last time.Time
@@ -78,6 +80,48 @@ type frameStats struct {
 	// rateFrames how many ended since, the last at rateLast.
 	rateFrom, rateLast time.Time
 	rateFrames         int
+	// measured is the last frame measured whole.
+	measured FrameStats
+}
+
+// FrameStats is what a window's frame took, as MYGO_FRAME_STATS logs it:
+// the time from its start to the end of its present, and its parts.
+type FrameStats struct {
+	// Frame is the window's count of the frames built; a frame that paints
+	// the elements of the last one again (Painter.AnimationFrame) keeps the
+	// count of that one, and builds in no Passes.
+	Frame  uint64
+	Passes int
+	// Start is when the frame began, Total how long it took.
+	Start time.Time
+	Total time.Duration
+	// Build, Layout, Paint and Present are its parts; what they leave of
+	// Total is the bookkeeping around them.
+	Build, Layout, Paint, Present time.Duration
+	// Allocs and AllocBytes are what the process allocated while the frame
+	// ran, on any goroutine; GCCycles how many collections ended, GCAssist
+	// how long goroutines helped the collector mark.
+	Allocs, AllocBytes uint64
+	GCCycles           int
+	GCAssist           time.Duration
+}
+
+// noLog is the threshold of frames measured for Context.FrameStats while
+// MYGO_FRAME_STATS is unset: they log none.
+const noLog = time.Duration(math.MaxInt64)
+
+// FrameStats returns what the window's last frame took, ok false until one
+// was measured. The window measures its frames from the first call on, as
+// with MYGO_FRAME_STATS but logging none unless that is set: each frame
+// then reads the clock and the runtime's counters a few times. A view
+// building a frame reads the one before it, which ended as it presented.
+func (c *context) FrameStats() (s FrameStats, ok bool) {
+	rt := c.rt
+	if rt.stats == nil {
+		rt.stats = newFrameStats(noLog)
+	}
+	s = rt.stats.measured
+	return s, !s.Start.IsZero()
 }
 
 // rateGap is a pause between frames that starts the count of the frame
@@ -124,9 +168,10 @@ func (f *frameStats) begin(rt *engine) {
 	f.last = f.start
 }
 
-// lap ends a part of the frame.
+// lap ends a part of the frame. A frame that began before measuring did
+// (Context.FrameStats) is not measured.
 func (f *frameStats) lap(phase int) {
-	if f == nil {
+	if f == nil || f.start.IsZero() {
 		return
 	}
 	now := time.Now()
@@ -134,9 +179,10 @@ func (f *frameStats) lap(phase int) {
 	f.last = now
 }
 
-// end logs the frame if it took longer than the threshold.
+// end keeps what the frame took, and logs it if it took longer than the
+// threshold.
 func (f *frameStats) end(rt *engine) {
-	if f == nil {
+	if f == nil || f.start.IsZero() {
 		return
 	}
 	end := time.Now()
@@ -144,13 +190,19 @@ func (f *frameStats) end(rt *engine) {
 	if pacing.Uncapped {
 		f.rate(f.start, end)
 	}
-	if total < f.threshold {
-		return
-	}
 	after := f.read()
 	var d [stats]float64
 	for i := range d {
 		d[i] = after[i] - f.before[i]
+	}
+	f.measured = FrameStats{
+		Frame: rt.frame, Passes: f.passes, Start: f.start, Total: total,
+		Build: f.laps[phaseBuild], Layout: f.laps[phaseLayout], Paint: f.laps[phasePaint], Present: f.laps[phasePresent],
+		Allocs: uint64(d[statObjects] + d[statTiny]), AllocBytes: uint64(d[statBytes]),
+		GCCycles: int(d[statCycles]), GCAssist: time.Duration(d[statAssist] * float64(time.Second)),
+	}
+	if total < f.threshold {
+		return
 	}
 	ms := func(t time.Duration) string { return strconv.FormatFloat(t.Seconds()*1000, 'f', 1, 64) }
 	other := total

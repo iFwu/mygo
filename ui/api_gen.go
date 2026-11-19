@@ -385,6 +385,19 @@ func (_handle *Context) FocusTakesText() bool {
 	return _ctx.FocusTakesText()
 }
 
+// FrameStats returns what the window's last frame took, ok false until one
+// was measured. The window measures its frames from the first call on, as
+// with MYGO_FRAME_STATS but logging none unless that is set: each frame
+// then reads the clock and the runtime's counters a few times. A view
+// building a frame reads the one before it, which ended as it presented.
+func (_handle *Context) FrameStats() (FrameStats, bool) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return *new(FrameStats), false
+	}
+	return _ctx.FrameStats()
+}
+
 // Instant reports whether this frame shows animated values at once
 // (DisableAnimations). Views read it to render a change settled in the same
 // frames where its animations are disabled.
@@ -1745,7 +1758,9 @@ func Local[T any](e Element, key any, init func() T) *T {
 // Right opens a submenu and Left closes it, the other way round right to
 // left (Direction); Enter and Space choose an item, Escape closes the
 // submenu on top, and Tab and a press outside the menu close it. The
-// pointer highlights the item it moves onto, opening its submenu.
+// pointer highlights the item it moves onto, opening its submenu, but for
+// those it crosses heading for a submenu that shows, which stays open
+// until the pointer rests on one of them (menuAimGrace).
 // Assistive technology sees a menu button, expanded while its menu shows,
 // and a menu of items, check box items and radio items. PopoverMenuButton
 // draws its menu with these parts, in the theme's look.

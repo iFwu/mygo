@@ -62,3 +62,42 @@ func TestFrameStats(t *testing.T) {
 		t.Errorf("a fast frame logged %q", logged)
 	}
 }
+
+func TestContextFrameStats(t *testing.T) {
+	var logged []string
+	defer func(f func(...any)) { frameLog = f }(frameLog)
+	frameLog = func(v ...any) { logged = append(logged, v[0].(string)) }
+
+	var got []FrameStats
+	measuring := false
+	tt := coreNewTester(func(c *context) {
+		if measuring {
+			if s, ok := c.FrameStats(); ok {
+				got = append(got, s)
+			}
+		}
+		coreText(c, "Hello")
+	}, 200, 100)
+	tt.rt.stats = nil
+	tt.Frame()
+	if tt.rt.stats != nil {
+		t.Fatal("frames are measured before a view asks")
+	}
+	measuring = true
+	tt.Frame() // starts measuring, from the next frame
+	tt.Frame()
+	if len(got) != 0 {
+		t.Fatalf("the frame measuring began in reads %+v", got)
+	}
+	tt.Frame()
+	if len(got) != 1 {
+		t.Fatalf("read %d frames, want the one before", len(got))
+	}
+	s := got[0]
+	if s.Passes < 1 || s.Start.IsZero() || s.Total <= 0 || s.Build+s.Layout+s.Paint+s.Present > s.Total {
+		t.Errorf("frame measured as %+v", s)
+	}
+	if len(logged) > 0 {
+		t.Errorf("measuring for the view logged %q", logged)
+	}
+}
